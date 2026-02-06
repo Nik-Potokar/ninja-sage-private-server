@@ -7,6 +7,7 @@ use SabreAMF_Message;
 use SabreAMF_InputStream;
 use SabreAMF_OutputStream;
 use SabreAMF_Const;
+use SabreAMF_AMF3_Wrapper;
 use Illuminate\Support\Facades\Log;
 use App\Models\Character;
 use App\Models\User;
@@ -37,11 +38,17 @@ class AmfController extends Controller
 
         // 3. Prepare the Response Message
         $amfResponse = new SabreAMF_Message();
-        $amfResponse->setEncoding($amfRequest->getEncoding());
+        $requestEncoding = $amfRequest->getEncoding();
+        $useAmf3Wrapper = $requestEncoding === SabreAMF_Const::AMF3;
+        $amfResponse->setEncoding($useAmf3Wrapper ? SabreAMF_Const::AMF0 : $requestEncoding);
 
         // 4. Process each "Body"
         foreach ($amfRequest->getBodies() as $requestBody) {
             $responseBody = $this->handleBody($requestBody);
+            if ($useAmf3Wrapper) {
+                $responseBody['data'] = new SabreAMF_AMF3_Wrapper($this->normalizeAmf3Data($responseBody['data']));
+            }
+
             $amfResponse->addBody($responseBody);
         }
 
@@ -64,7 +71,7 @@ class AmfController extends Controller
         Log::info("AMF Call: $target", ['args' => $data]);
 
         try {
-            $sessionError = $this->validateSessionKey($target, $data);
+            $sessionError = $this->validateSessionKey($target, $this->unwrapSingleArgArray($data));
             if ($sessionError) {
                 return [
                     'target' => $responseTarget . '/onResult',
@@ -125,7 +132,10 @@ class AmfController extends Controller
             throw new \Exception("Method '$methodName' not found on service '$serviceName'.");
         }
 
-        return call_user_func_array([$serviceInstance, $methodName], is_array($data) ? $data : [$data]);
+        $method = new \ReflectionMethod($serviceInstance, $methodName);
+        $args = $this->normalizeArgsForMethod($data, $method);
+
+        return call_user_func_array([$serviceInstance, $methodName], $args);
     }
 
     private function validateSessionKey(string $target, $data): ?array
@@ -211,5 +221,61 @@ class AmfController extends Controller
         }
 
         return array_values(array_unique($ids));
+    }
+
+    private function normalizeArgsForMethod($data, \ReflectionMethod $method): array
+    {
+        if (!is_array($data)) {
+            return [$data];
+        }
+
+        $paramCount = $method->getNumberOfParameters();
+
+        if ($paramCount === 0) {
+            return [];
+        }
+
+        if ($paramCount === 1) {
+            if (array_is_list($data) && count($data) === 1) {
+                return [$data[0]];
+            }
+
+            return [$data];
+        }
+
+        if (array_is_list($data) && count($data) === 1 && is_array($data[0])) {
+            return $data[0];
+        }
+
+        return $data;
+    }
+
+    private function unwrapSingleArgArray($data)
+    {
+        if (is_array($data) && array_is_list($data) && count($data) === 1 && is_array($data[0])) {
+            return $data[0];
+        }
+
+        return $data;
+    }
+
+    private function normalizeAmf3Data($data)
+    {
+        if (is_array($data)) {
+            if (array_is_list($data)) {
+                return array_map(function ($value) {
+                    return $this->normalizeAmf3Data($value);
+                }, $data);
+            }
+
+            $obj = new \stdClass();
+            foreach ($data as $key => $value) {
+                $obj->{$key} = $this->normalizeAmf3Data($value);
+            }
+
+            return $obj;
+        }
+
+        return $data;
     }
 }

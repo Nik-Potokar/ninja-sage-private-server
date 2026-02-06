@@ -16,12 +16,14 @@ class VersionService
 
         $ivSource = mt_rand(100000, 999999);
         $key = Str::random(16);
+        $cdn = rtrim(env('APP_URL', 'https://ninjasage.test/'), '/') . '/';
 
         return [
             'status' => 1,
+            'error' => 0,
             '_' => $ivSource,
             '__' => $key,
-            'cdn' => env('APP_URL', 'https://ninjasage.test/'),
+            'cdn' => $cdn,
             'pvp_socket' => env('PVP_SOCKET_URL', 'http://127.0.0.1:3000/pvp'),
             //'cdn' => 'https://ns-assets.ninjasage.id/static/releases/cdn/assets/',
             '_rm' => '',
