@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AmfController;
 
 Route::get('/', function () {
-    return redirect('/admin');
+    return view('client');
 });
 
 // AMF Gateway Routes
