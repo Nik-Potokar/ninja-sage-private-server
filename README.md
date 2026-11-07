@@ -7,6 +7,58 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Cliente web inicial
+
+Este repositorio incluye un cliente web inicial en `/` que se conecta al gateway AMF real (`/amf`) para registrar e iniciar sesión, crear y seleccionar personajes, consultar sus datos e iniciar misiones. El catálogo de misiones y enemigos se carga desde los JSON incluidos en `public/game_data`; no necesita ni descarga recursos gráficos externos.
+
+### Ejecutar localmente
+
+Requisitos: PHP 8.2 o posterior, Composer, Node.js y npm.
+
+1. Instala dependencias y prepara la configuración:
+
+   ```sh
+   composer install
+   cp .env.example .env
+   php artisan key:generate
+   ```
+
+   Configura la conexión a la base de datos en `.env` y ejecuta `php artisan migrate`.
+
+2. Carga los catálogos incluidos:
+
+   ```sh
+   php artisan db:seed --class=GameDataSeeder
+   ```
+
+   `GameDataSeeder` reemplaza las tablas de catálogos del juego (misiones, enemigos, habilidades, objetos y otros datos importados). No lo ejecutes sobre esos catálogos si necesitas conservar cambios propios.
+
+3. Compila el cliente e inicia Laravel:
+
+   ```sh
+   npm ci
+   npm run build
+   php artisan serve
+   ```
+
+4. Abre `http://127.0.0.1:8000`, crea una cuenta, crea tu personaje y elige una misión disponible para iniciar. El usuario y la clave se validan mediante `SystemLogin.loginUser`; la clave de sesión se conserva solo en la pestaña actual y se elimina localmente al salir. El gateway no ofrece una operación para revocar la sesión en el servidor.
+
+Para comprobar el cliente y el protocolo AMF:
+
+```sh
+npm run test:client
+npm run build
+php artisan test
+```
+
+### Combate por turnos
+
+El servidor es autoritativo: `BattleSystem.performTurn` valida la sesión, el token, el objetivo, las habilidades equipadas, los puntos de chakra y los enfriamientos; calcula el daño y los contraataques usando las definiciones incluidas. El cliente ofrece ataque básico, habilidades de objetivo único y defensa. `BattleSystem.finishMission` solo concede las recompensas configuradas después de que el estado de combate del servidor sea una victoria; la interfaz no puede declarar el resultado enviando una puntuación.
+
+La salud y el chakra iniciales del jugador son valores derivados del nivel porque el modelo de personaje no define estadísticas de combate. La derrota no otorga recompensas. El token y el estado de combate se guardan en la caché del servidor y expiran en 30 minutos; no hay una operación para reanudar una batalla después de recargar la página o expirar esa caché.
+
+Para despliegues no locales, sirve el cliente y el gateway por HTTPS: el transporte del navegador es la protección de las credenciales y de la clave de sesión.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

@@ -144,6 +144,10 @@ class AmfController extends Controller
             return null;
         }
 
+        if (in_array($target, ['SystemLogin.registerUser', 'SystemLogin.loginUser'], true)) {
+            return null;
+        }
+
         $sessionKeyInfo = $this->extractSessionKeyInfo($data);
         if (!$sessionKeyInfo) {
             return null;
@@ -157,6 +161,13 @@ class AmfController extends Controller
 
         if ($target === 'SystemLogin.getAllCharacters') {
             return null;
+        }
+
+        if ($target === 'Character.characterRegister') {
+            $accountId = $this->extractAdjacentNumericId($data, $sessionKeyInfo['index']);
+            return $accountId === (int)$user->id
+                ? null
+                : ['status' => 0, 'error' => 'Invalid session key'];
         }
 
         $numericIds = $this->extractNumericIds($data);
