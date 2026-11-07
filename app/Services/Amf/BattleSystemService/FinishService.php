@@ -4,7 +4,6 @@ namespace App\Services\Amf\BattleSystemService;
 
 use App\Models\Character;
 use App\Models\CharacterPet;
-use App\Models\CharacterRecruit;
 use App\Models\XP;
 use App\Services\Amf\SessionValidator;
 use Carbon\Carbon;
@@ -21,31 +20,42 @@ class FinishService
     {
         Log::info("AMF Finish Mission Attempt: Char $charId Mission $missionId Token $token");
 
-        $guard = SessionValidator::validateCharacter((int)$charId, $sessionKey);
-        if ($guard) return $guard;
+        $guard = SessionValidator::validateCharacter((int) $charId, $sessionKey);
+        if ($guard) {
+            return $guard;
+        }
 
         $cachedBattle = Cache::get("battle_token_$charId");
 
-        if (!$cachedBattle) {
+        if (! $cachedBattle) {
             Log::warning("No cached battle found for Char $charId.");
+
             return ['status' => 0, 'error' => 'Invalid battle token'];
         }
 
         if ($cachedBattle['token'] !== $token || $cachedBattle['mission_id'] !== $missionId) {
             Log::warning("Token/mission mismatch for Char $charId. Expected: {$cachedBattle['token']} / {$cachedBattle['mission_id']}, Got: $token / $missionId");
+
             return ['status' => 0, 'error' => 'Invalid battle token'];
         }
 
-        if (!$this->validateHash((string)$hash, (string)$missionId . (string)$charId . (string)$token . (string)$score)) {
+        if (($cachedBattle['combat_state']['status'] ?? null) !== 'victory') {
+            return ['status' => 0, 'error' => 'The battle has not been won'];
+        }
+
+        if (! $this->validateHash((string) $hash, (string) $missionId.(string) $charId.(string) $token.(string) $score)) {
             Log::warning("Finish hash mismatch for Char $charId Mission $missionId");
+
             return ['status' => 0, 'error' => 'Invalid battle data'];
         }
 
         $char = Character::find($charId);
-        if (!$char) return ['status' => 0, 'error' => 'Character not found'];
+        if (! $char) {
+            return ['status' => 0, 'error' => 'Character not found'];
+        }
 
-        $goldReward = isset($cachedBattle['reward_gold']) ? (int)$cachedBattle['reward_gold'] : 20;
-        $xpReward = isset($cachedBattle['reward_xp']) ? (int)$cachedBattle['reward_xp'] : 20;
+        $goldReward = isset($cachedBattle['reward_gold']) ? (int) $cachedBattle['reward_gold'] : 20;
+        $xpReward = isset($cachedBattle['reward_xp']) ? (int) $cachedBattle['reward_xp'] : 20;
 
         // Apply Double XP if active
         if ($char->double_xp_expire_at && Carbon::now()->lt(Carbon::parse($char->double_xp_expire_at))) {
@@ -58,8 +68,7 @@ class FinishService
             }
         }
 
-        if ($char->isLevelCapped())
-        {
+        if ($char->isLevelCapped()) {
             $xpReward = 0;
         }
 
@@ -111,14 +120,14 @@ class FinishService
             'status' => 1,
             'error' => 0,
             'result' => [
-                (int)$xpReward,
-                (int)$goldReward,
-                [] // Item rewards
+                (int) $xpReward,
+                (int) $goldReward,
+                [], // Item rewards
             ],
-            'level' => (int)$char->level,
-            'xp' => (int)$char->xp,
+            'level' => (int) $char->level,
+            'xp' => (int) $char->xp,
             'level_up' => $levelUp,
-            'account_tokens' => (int)$char->user->tokens
+            'account_tokens' => (int) $char->user->tokens,
         ];
     }
 

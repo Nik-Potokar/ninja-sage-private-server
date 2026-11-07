@@ -9,7 +9,7 @@
 
 ## Cliente web inicial
 
-Este repositorio incluye un cliente web mínimo en `/` que se conecta al gateway AMF real (`/amf`) para registrar e iniciar sesión, crear y seleccionar personajes, consultar sus datos e iniciar misiones. El catálogo de misiones y enemigos se carga desde los JSON incluidos en `public/game_data`; no necesita ni descarga recursos gráficos externos.
+Este repositorio incluye un cliente web inicial en `/` que se conecta al gateway AMF real (`/amf`) para registrar e iniciar sesión, crear y seleccionar personajes, consultar sus datos e iniciar misiones. El catálogo de misiones y enemigos se carga desde los JSON incluidos en `public/game_data`; no necesita ni descarga recursos gráficos externos.
 
 ### Ejecutar localmente
 
@@ -51,9 +51,11 @@ npm run build
 php artisan test
 ```
 
-### Límite del flujo de juego
+### Combate por turnos
 
-El backend valida `BattleSystem.startMission` y devuelve un token de misión. Aunque existe una operación `finishMission`, no hay acciones de combate por turnos ni una resolución de combate verificada por el servidor; por eso el cliente muestra los objetivos de la misión iniciada, pero no simula victorias ni llama a la operación de recompensas como atajo. El token de una misión activa tampoco se puede recuperar mediante una operación de reanudación existente.
+El servidor es autoritativo: `BattleSystem.performTurn` valida la sesión, el token, el objetivo, las habilidades equipadas, los puntos de chakra y los enfriamientos; calcula el daño y los contraataques usando las definiciones incluidas. El cliente ofrece ataque básico, habilidades de objetivo único y defensa. `BattleSystem.finishMission` solo concede las recompensas configuradas después de que el estado de combate del servidor sea una victoria; la interfaz no puede declarar el resultado enviando una puntuación.
+
+La salud y el chakra iniciales del jugador son valores derivados del nivel porque el modelo de personaje no define estadísticas de combate. La derrota no otorga recompensas. El token y el estado de combate se guardan en la caché del servidor y expiran en 30 minutos; no hay una operación para reanudar una batalla después de recargar la página o expirar esa caché.
 
 Para despliegues no locales, sirve el cliente y el gateway por HTTPS: el transporte del navegador es la protección de las credenciales y de la clave de sesión.
 

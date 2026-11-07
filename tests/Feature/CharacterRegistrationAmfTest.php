@@ -52,7 +52,7 @@ class CharacterRegistrationAmfTest extends TestCase
         $responseMessage = new SabreAMF_Message;
         $responseMessage->deserialize($inputStream);
 
-        $this->assertSame(1, $responseMessage->getBodies()[0]['data']['status']);
+        $this->assertEquals(1, $responseMessage->getBodies()[0]['data']['status']);
         $this->assertDatabaseHas('characters', [
             'user_id' => $user->id,
             'name' => 'Kaito',

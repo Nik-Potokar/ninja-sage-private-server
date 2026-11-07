@@ -20,6 +20,10 @@ const state = {
     missions: [],
     enemies: new Map(),
     activeMission: null,
+    battleToken: null,
+    battle: null,
+    selectedEnemyIndex: 0,
+    missionResult: null,
 };
 
 const elements = [
@@ -246,35 +250,70 @@ function dashboardMarkup() {
                 <div class="empty-state">No hay misiones visibles para este nivel en el catálogo incluido.</div>`}
             <aside class="notice-panel">
                 <span class="notice-symbol">i</span>
-                <p><strong>Combate en desarrollo.</strong> El backend permite iniciar una misión, pero no ofrece acciones de combate por turnos ni una resolución de combate verificable. Este cliente no simula victorias ni solicita recompensas.</p>
+                <p><strong>Combate por turnos.</strong> El servidor resuelve el daño, los turnos enemigos y las recompensas; las estadísticas y acciones enviadas por el navegador no deciden el resultado.</p>
             </aside>
         </div>`;
 }
 
-function activeMissionMarkup() {
+function healthBarMarkup(current, maximum, kind) {
+    const percent = maximum > 0 ? Math.max(0, Math.min(100, (current / maximum) * 100)) : 0;
+    return `<div class="combat-meter ${kind}"><div class="meter-track"><span style="width:${percent}%"></span></div><small>${formatNumber(current)} / ${formatNumber(maximum)}</small></div>`;
+}
+
+function combatMarkup() {
     const mission = state.activeMission;
-    const enemies = mission.enemies.map((id) => state.enemies.get(id)).filter(Boolean);
+    const battle = state.battle;
+    const player = battle.player;
+    const finished = battle.status !== 'ongoing';
+    const victory = battle.status === 'victory';
+    const selectedEnemy = battle.enemies[state.selectedEnemyIndex];
     return `
         <div class="game-layout">
             ${statsMarkup()}
             <section class="active-mission content-card">
-                <div class="mission-stamp"><span class="status-dot"></span> MISIÓN ACEPTADA POR EL SERVIDOR</div>
+                <div class="mission-stamp"><span class="status-dot"></span> ${finished ? victory ? 'VICTORIA' : 'DERROTA' : `COMBATE · RONDA ${escapeHtml(battle.round)}`}</div>
                 <div class="section-kicker">MISIÓN ${escapeHtml(mission.id)}</div>
                 <h1>${escapeHtml(mission.name)}</h1>
                 <p class="mission-description">${escapeHtml(mission.description)}</p>
-                <div class="enemy-grid">
-                    ${enemies.map((enemy, index) => `
-                        <article class="enemy-card">
-                            <div class="enemy-number">OBJETIVO ${String(index + 1).padStart(2, '0')}</div>
-                            <h3>${escapeHtml(enemy.name)}</h3>
-                            <div class="enemy-stats"><span>HP <strong>${formatNumber(enemy.hp)}</strong></span><span>AGI <strong>${formatNumber(enemy.agility)}</strong></span></div>
-                        </article>`).join('')}
+                ${feedbackMarkup()}
+                <div class="combatant-grid">
+                    <article class="combatant-card player-combatant">
+                        <div class="combatant-heading"><span class="combatant-tag">TU NINJA</span><strong>${escapeHtml(state.characterData.character_data.character_name)}</strong></div>
+                        <span class="combat-stat-label">SALUD</span>
+                        ${healthBarMarkup(player.hp, player.max_hp, 'health')}
+                        <span class="combat-stat-label">CHAKRA</span>
+                        ${healthBarMarkup(player.cp, player.max_cp, 'chakra')}
+                    </article>
+                    ${battle.enemies.map((enemy, index) => `
+                        <button type="button" class="combatant-card enemy-combatant ${index === state.selectedEnemyIndex ? 'selected' : ''} ${enemy.hp <= 0 ? 'defeated' : ''}" data-action="select-target" data-index="${index}" ${finished || enemy.hp <= 0 ? 'disabled' : ''}>
+                            <span class="combatant-tag">OBJETIVO ${String(index + 1).padStart(2, '0')}</span>
+                            <strong>${escapeHtml(enemy.name)}</strong>
+                            ${healthBarMarkup(enemy.hp, enemy.max_hp, 'health')}
+                            <small class="target-hint">${enemy.hp <= 0 ? 'DERROTADO' : index === state.selectedEnemyIndex ? 'OBJETIVO SELECCIONADO' : 'SELECCIONAR OBJETIVO'}</small>
+                        </button>`).join('')}
                 </div>
-                <div class="notice-panel">
-                    <span class="notice-symbol">i</span>
-                    <p>El gateway confirmó el inicio y entregó un token de misión. El backend no ofrece turnos ni una finalización basada en acciones de combate; por eso esta pantalla no inventa una victoria ni concede recompensas.</p>
+                <div class="combat-log" aria-label="Registro de combate">
+                    <div class="combat-log-heading">REGISTRO DE COMBATE</div>
+                    ${[...battle.log].reverse().map((entry) => `<p>${escapeHtml(entry)}</p>`).join('')}
                 </div>
-                <button type="button" class="button button-secondary" data-action="back-to-missions">Volver al tablero</button>
+                ${finished ? `
+                    <div class="battle-result ${victory ? 'victory' : 'defeat'}">
+                        <strong>${victory ? 'Misión completada' : 'Tu ninja ha caído'}</strong>
+                        <span>${victory && state.missionResult?.result ? `Recompensas del servidor: ${formatNumber(state.missionResult.result[0])} XP y ${formatNumber(state.missionResult.result[1])} de oro.` : victory ? 'El servidor confirmó la victoria.' : 'No se concedieron recompensas.'}</span>
+                    </div>
+                    <button type="button" class="button button-secondary" data-action="back-to-missions">Volver al tablero</button>
+                ` : `
+                    <div class="combat-actions">
+                        <button type="button" class="button button-primary" data-action="combat-attack" data-index="${state.selectedEnemyIndex}" ${state.busy || !selectedEnemy || selectedEnemy.hp <= 0 ? 'disabled' : ''}>Ataque básico <span aria-hidden="true">→</span></button>
+                        ${battle.skills.map((skill) => `
+                            <button type="button" class="button button-secondary" data-action="combat-skill" data-id="${escapeHtml(skill.id)}" data-index="${state.selectedEnemyIndex}" ${state.busy || !selectedEnemy || selectedEnemy.hp <= 0 || skill.cooldown_remaining > 0 || player.cp < skill.cp_cost ? 'disabled' : ''}>
+                                ${escapeHtml(skill.name)} <span>${formatNumber(skill.cp_cost)} chakra</span>
+                                ${skill.cooldown_remaining > 0 ? `<small>Espera ${skill.cooldown_remaining} turnos</small>` : ''}
+                            </button>`).join('')}
+                        <button type="button" class="button button-guard" data-action="combat-guard" ${state.busy ? 'disabled' : ''}>Defender <span>Reduce el siguiente daño</span></button>
+                        ${state.busy ? '<span class="turn-pending"><span class="spinner"></span> Resolviendo turno…</span>' : ''}
+                    </div>
+                `}
             </section>
         </div>`;
 }
@@ -286,8 +325,8 @@ function render() {
         content = authMarkup();
     } else if (state.screen === 'characters') {
         content = charactersMarkup();
-    } else if (state.screen === 'mission') {
-        content = activeMissionMarkup();
+    } else if (state.screen === 'combat') {
+        content = combatMarkup();
     } else {
         content = dashboardMarkup();
     }
@@ -469,9 +508,57 @@ async function startMission(missionId) {
     if (typeof token !== 'string' || token.length === 0) {
         throw new Error(token?.error || 'El servidor no inició la misión.');
     }
+    const response = requireSuccess(await callAmf('BattleSystem.getBattleState', [
+        state.characterId,
+        mission.id,
+        token,
+        state.sessionKey,
+    ]), 'No se pudo preparar el combate.');
+    state.battleToken = token;
     state.activeMission = mission;
-    state.screen = 'mission';
+    state.battle = response.battle;
+    state.missionResult = null;
+    state.selectedEnemyIndex = 0;
+    state.screen = 'combat';
     setFeedback();
+}
+
+async function performCombatAction(action, targetIndex, skillId = '') {
+    const response = requireSuccess(await callAmf('BattleSystem.performTurn', [
+        state.characterId,
+        state.activeMission.id,
+        state.battleToken,
+        action,
+        Number(targetIndex),
+        skillId,
+        state.sessionKey,
+    ]), 'No se pudo resolver el turno.');
+    state.battle = response.battle;
+
+    if (state.battle.status === 'victory') {
+        state.missionResult = await callAmf('BattleSystem.finishMission', [
+            state.characterId,
+            state.activeMission.id,
+            state.battleToken,
+            '',
+            0,
+            state.sessionKey,
+            '',
+            '',
+        ]);
+        if (Number(state.missionResult?.status) !== 1) {
+            throw new Error(state.missionResult?.error || 'La victoria se guardó, pero el servidor no pudo entregar las recompensas.');
+        }
+        const characterResponse = requireSuccess(await callAmf('SystemLogin.getCharacterData', [
+            state.characterId,
+            state.sessionKey,
+        ]), 'Se obtuvieron las recompensas, pero no se pudo actualizar la ficha.');
+        state.characterData = characterResponse;
+    }
+
+    if (state.battle.status === 'ongoing' && state.battle.enemies[state.selectedEnemyIndex]?.hp <= 0) {
+        state.selectedEnemyIndex = state.battle.enemies.findIndex((enemy) => enemy.hp > 0);
+    }
 }
 
 root.addEventListener('submit', (event) => {
@@ -513,8 +600,20 @@ root.addEventListener('click', (event) => {
     } else if (action === 'back-to-missions') {
         state.screen = 'dashboard';
         state.activeMission = null;
+        state.battleToken = null;
+        state.battle = null;
+        state.missionResult = null;
         setFeedback();
         render();
+    } else if (action === 'select-target') {
+        state.selectedEnemyIndex = Number(button.dataset.index);
+        render();
+    } else if (action === 'combat-attack') {
+        withBusy(() => performCombatAction('attack', button.dataset.index));
+    } else if (action === 'combat-skill') {
+        withBusy(() => performCombatAction('skill', button.dataset.index, button.dataset.id));
+    } else if (action === 'combat-guard') {
+        withBusy(() => performCombatAction('guard', 0));
     }
 });
 
